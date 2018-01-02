@@ -1,139 +1,90 @@
 package simpleNN;
+import Jama.*;
 
 public class Network {
-  private class Layer {
-    private class Neuron {
-      Neuron[] inputs;
-      float[] weights;
-      float output;
-      float error;
+  static double activate(double x) {
+    return 1 / (1 + Math.pow(Math.E, -x)); // Sigmoid
+    // return Math.max(0, x); // ReLU
+  }
 
-      Neuron() {
-        error = 0;
+  static double derivative(double x) {
+    return x * (1 - x); // Sigmoid
+    // return x < 0 ? 0 : 1; // ReLU
+  }
+
+  public Matrix[] weights;
+  double learningRate;
+
+  public Network(int[] layers, double lr) {
+    weights = new Matrix[layers.length - 1];
+
+    for (int i = 0; i < weights.length; i++) {
+      weights[i] = new Matrix(layers[i + 1], layers[i]);
+
+      for (int row = 0; row < weights[i].getRowDimension(); row++) {
+        for (int col = 0; col < weights[i].getColumnDimension(); col++) {
+          weights[i].set(row, col, Math.random() * 2 - 1);
+        }
       }
+    }
 
-      Neuron(Neuron[] pInputs) {
-        inputs = new Neuron[pInputs.length];
-        weights = new float[pInputs.length];
+    learningRate = lr;
+  }
 
-        for (int i = 0; i < pInputs.length; i++) {
-          inputs[i] = pInputs[i];
-          weights[i] = (float) Math.random() * 2 - 1;
+  public Matrix test(double[] input) {
+    return test(new Matrix(input, input.length));
+  }
+
+  public Matrix test(Matrix input) {
+    Matrix output = input.copy();
+    for (int i = 0; i < weights.length; i++) {
+      output = weights[i].times(output);
+
+      for (int row = 0; row < output.getRowDimension(); row++) {
+        for (int col = 0; col < output.getColumnDimension(); col++) {
+          output.set(row, col, Network.activate(output.get(row, col)));
+        }
+      }
+    }
+
+    return output;
+  }
+
+  public void train(double[] input, double[] desired) {
+    train(new Matrix(input, input.length), new Matrix(desired, desired.length));
+  }
+
+  public void train(Matrix input, Matrix desired) {
+    Matrix[] outputs = new Matrix[weights.length];
+
+    Matrix output = input.copy();
+    for (int i = 0; i < weights.length; i++) {
+      output = weights[i].times(output);
+
+      for (int row = 0; row < output.getRowDimension(); row++) {
+        for (int col = 0; col < output.getColumnDimension(); col++) {
+          output.set(row, col, Network.activate(output.get(row, col)));
         }
       }
 
-      void feedFd() {
-        float sum = 0;
-        for (int i = 0; i < inputs.length; i++) {
-          sum += inputs[i].getOutput() * weights[i];
-        }
-        output = sigmoid(sum);
-        error = 0;
-      }
+      outputs[i] = output;
+    }
 
-      void train() {
-        float diff = (1f - output) * (1f + output) * error * (float) 0.01;
-        for (int i = 0; i < inputs.length; i++) {
-          inputs[i].error += weights[i] * error;
-          weights[i] += inputs[i].output * diff;
+    Matrix error = desired.minus(outputs[outputs.length - 1]);
+
+    for (int i = outputs.length - 1; i > 0; i--) {
+      Matrix gradient = outputs[i].copy();
+      for (int row = 0; row < gradient.getRowDimension(); row++) {
+        for (int col = 0; col < gradient.getColumnDimension(); col++) {
+          gradient.set(row, col, Network.derivative(gradient.get(row, col)));
         }
       }
+      gradient = gradient.arrayTimes(error);
+      gradient.timesEquals(learningRate);
 
-      void setError(float desired) {
-        error = desired - output;
-      }
+      weights[i].plus(gradient.times(outputs[i - 1].transpose()));
 
-      float getOutput() {
-        return output;
-      }
-
-      void setOutput(float input) {
-        output = input;
-      }
+      error = weights[i].transpose().times(error);
     }
-
-    Neuron[] neurons;
-
-    Layer(int size) {
-      neurons = new Neuron[size];
-      for (int i = 0; i < size; i++) {
-        neurons[i] = new Neuron();
-      }
-    }
-
-    Layer(int size, Layer previous) {
-      neurons = new Neuron[size];
-      for (int i = 0; i < size; i++) {
-        neurons[i] = new Neuron(previous.getNeurons());
-      }
-    }
-
-    void train() {
-      for (Neuron n : neurons) n.train();
-    }
-
-    void feedFd() {
-      for (Neuron n : neurons) n.feedFd();
-    }
-
-    void setErrors(float[] desired) {
-      for (int i = 0; i < desired.length; i++) {
-        neurons[i].setError(desired[i]);
-      }
-    }
-
-    void setOutputs(float[] inputs) {
-      for (int i = 0; i < inputs.length; i++) {
-        neurons[i].setOutput(inputs[i]);
-      }
-    }
-
-    float[] getOutputs() {
-      float[] out = new float[neurons.length];
-      for (int i = 0; i < out.length; i++) {
-        out[i] = neurons[i].getOutput();
-      }
-      return out;
-    }
-
-    Neuron[] getNeurons() {
-      return neurons;
-    }
-  }
-
-  Layer[] layers;
-
-  public Network(int[] layerSizes) {
-    layers = new Layer[layerSizes.length];
-
-    layers[0] = new Layer(layerSizes[0]);
-    for (int i = 1; i < layers.length; i++) {
-      layers[i] = new Layer(layerSizes[i], layers[i-1]);
-    }
-  }
-
-  public void train(float[] input, float[] desired) {
-    test(input);
-
-    layers[layers.length-1].setErrors(desired);
-    for (int i = layers.length-1; i >= 1; i--) {
-      layers[i].train();
-    }
-  }
-
-  public void test(float[] inputs) {
-    layers[0].setOutputs(inputs);
-
-    for (int i = 1; i < layers.length; i++) {
-      layers[i].feedFd();
-    }
-  }
-
-  public float[] output() {
-    return layers[layers.length-1].getOutputs();
-  }
-
-  private float sigmoid(float x) {
-    return 2f / (1f + (float) Math.exp(-2f * x)) - 1f;
   }
 }
